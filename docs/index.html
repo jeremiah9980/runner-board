@@ -181,6 +181,10 @@ pre{background:var(--card2);border-radius:10px;padding:12px;overflow-x:auto;colo
 <section role="tabpanel" id="tab-shifts" hidden>
   <div class="card"><h2>Shift history</h2><div class="tbl" id="shiftsTbl"></div>
   <p class="note">Rows come from the nightly pipeline. Something wrong? Note the source file name and tell Jeremiah; the row is fixed in the repo.</p></div>
+  <div class="card" style="margin-top:14px"><h2>Trips</h2>
+  <p class="note" style="margin:0 0 10px" id="tripSummary"></p>
+  <div class="tbl" id="tripsTbl"></div>
+  <p class="note">Trip-level rows come from screen recordings of the app's earnings list (<b>Earnings Scroll</b>). $/mi and $/h here are per trip, after tolls; the <i>Should I take it?</i> target uses them when there are enough.</p></div>
 </section>
 
 <section role="tabpanel" id="tab-taxes" hidden>
@@ -280,7 +284,7 @@ const BLOCKS = [['Breakfast',6,10],['Lunch',10,14],['Afternoon',14,17],['Dinner'
 const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DEF_SETTINGS = {mileageRate:0.70, setAside:25, minPerMile:1.50, targetHr:22, weekStart:1};
 const REWARD_LABELS = {fetch:'Fetch', ibotta:'Ibotta', receipt_hog:'Receipt Hog', upside:'Upside', other:'Other'};
-const state = {runners:[], shifts:[], offers:[], expenses:[], receipts:[], settings:{...DEF_SETTINGS}, runner:'all', range:'week', rcFilter:'pending', loaded:false};
+const state = {runners:[], shifts:[], offers:[], expenses:[], receipts:[], trips:[], settings:{...DEF_SETTINGS}, runner:'all', range:'week', rcFilter:'pending', loaded:false};
 const rcKey = (id,prog) => `rb.rc.${id}.${prog}`;
 const rcGet = (id,prog) => { try{ return localStorage.getItem(rcKey(id,prog)) || 'pending'; }catch{ return 'pending'; } };
 const rcSet = (id,prog,v) => { try{ localStorage.setItem(rcKey(id,prog),v); }catch{} };
@@ -349,7 +353,16 @@ function render(){
   $('#goals').innerHTML = rs.length ? rs.map(r=>{ const wk=state.shifts.filter(s=>s.runner===r.name && dateObj(s.date)>=ws).reduce((a,s)=>a+netOf(s),0); const g=+r.weeklyGoal||0; const pct=g?Math.min(100,wk/g*100):0; const rem=Math.max(0,g-wk);
     return `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:14px"><b>${esc(r.name)}</b><span>${fmt0(wk)} <span class="note">of ${fmt0(g)}</span></span></div><div class="bar" style="margin:6px 0"><i style="width:${pct}%;background:${pct>=100?'var(--good)':'var(--accent)'}"></i></div><div class="note">${g? (rem>0?`${fmt0(rem)} to go · ${fmt0(rem/Math.max(1,daysLeft))}/day over ${daysLeft} day${daysLeft===1?'':'s'}`:'Goal hit this week.'):'No goal set.'}</div></div>`; }).join('') : '<div class="empty">No runners in runners.json yet.</div>';
   $('#insights').innerHTML = insights(A);
-  renderShifts(A); renderOffers(A); renderTaxes(); renderReceipts(); calc();
+  renderShifts(A); renderTrips(); renderOffers(A); renderTaxes(); renderReceipts(); calc();
+}
+function renderTrips(){
+  const all=filt(state.trips).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const done=all.filter(t=>t.total>0), canc=all.filter(t=>t.total===0), timed=done.filter(t=>t.minutes&&t.miles);
+  const net=t=>t.total-(t.toll||0);
+  const mi=timed.reduce((a,t)=>a+t.miles,0), min=timed.reduce((a,t)=>a+t.minutes,0), g=timed.reduce((a,t)=>a+net(t),0), tips=done.reduce((a,t)=>a+(t.tip||0),0);
+  $('#tripSummary').innerHTML = all.length ? `<b>${done.length}</b> completed · <b>${canc.length}</b> canceled (${Math.round(canc.length/all.length*100)}%) · on-trip <b>${fmt$(min?g/min*60:0)}/h</b> · <b>${fmt$(mi?g/mi:0)}/mi</b> · tips ${Math.round(tips/Math.max(1,done.reduce((a,t)=>a+t.total,0))*100)}% of pay · avg trip ${fmt$(timed.length?g/timed.length:0)} / ${timed.length?Math.round(min/timed.length):0} min / ${timed.length?(mi/timed.length).toFixed(1):0} mi` : 'No trips in range.';
+  $('#tripsTbl').innerHTML = all.length ? `<table><thead><tr><th>When</th><th>Runner</th><th>App</th><th>Type</th><th class="num">Pay</th><th class="num">Tip</th><th class="num">Min</th><th class="num">Mi</th><th class="num">$/mi</th><th class="num">$/h</th><th>Route</th></tr></thead><tbody>${all.slice(0,150).map(t=>{const pm=t.miles?net(t)/t.miles:null, ph=t.minutes?net(t)/t.minutes*60:null; const cls=v=>v==null?'':v>=state.settings.minPerMile?'good':v>=state.settings.minPerMile*0.66?'warn':'bad';
+    return `<tr${t.total===0?' style="opacity:.55"':''}><td>${t.date} ${t.time}</td><td>${esc(t.runner||'—')}</td><td><span class="pill app">${APPS[t.app]||t.app}</span></td><td class="note">${esc(t.kind.replace(/_/g,' '))}</td><td class="num"><b>${fmt$(t.total)}</b>${t.toll?`<br><span class="note" style="font-size:11px">toll ${fmt$(t.toll)}</span>`:''}</td><td class="num">${t.tip!=null?fmt$(t.tip):'—'}</td><td class="num">${t.minutes?Math.round(t.minutes):'—'}</td><td class="num">${t.miles?t.miles.toFixed(1):'—'}</td><td class="num">${pm!=null?`<span class="pill ${cls(pm)}">${fmt$(pm)}</span>`:'—'}</td><td class="num">${ph!=null?fmt$(ph):'—'}</td><td class="note">${esc(t.pickup||'')}${t.dropoff&&t.dropoff!=='Unknown'?` → ${esc(t.dropoff)}`:''}</td></tr>`;}).join('')}</tbody></table>` : '';
 }
 function programs(){ return (state.settings.rewards && state.settings.rewards.length) ? state.settings.rewards : ['fetch','ibotta','receipt_hog','upside']; }
 function renderReceipts(){
@@ -392,6 +405,8 @@ function renderShifts(A){
   $('#shiftsTbl').innerHTML = rows.length ? `<table><thead><tr><th>Date</th><th>Runner</th><th>App</th><th>Time</th><th class="num">Hrs</th><th class="num">Base</th><th class="num">Tips</th><th class="num">Net</th><th class="num">$/h</th><th class="num">Mi</th><th class="num">$/mi</th><th>Note</th></tr></thead><tbody>${rows.map(s=>{const h=shiftHours(s),n=netOf(s);return `<tr><td>${s.date}</td><td>${esc(s.runner)}</td><td><span class="pill app">${APPS[s.app]||esc(s.app)}</span></td><td>${s.start!=null?fmtT(s.start)+'–'+fmtT(s.end):'—'}</td><td class="num">${h.toFixed(1)}</td><td class="num">${fmt$(+s.gross||0)}</td><td class="num">${fmt$(+s.tips||0)}</td><td class="num"><b>${fmt$(n)}</b></td><td class="num">${h?fmt$(n/h):'—'}</td><td class="num">${(+s.miles||0).toFixed(0)}</td><td class="num">${s.miles?fmt$(n/s.miles):'—'}</td><td class="note">${esc(s.note||'')}${s.confidence==='medium'?' <span class="pill warn">check</span>':''}${s.src==='example'?' <span class="pill warn">example</span>':''}<br><span style="font-size:11px">${esc(s.sourceFile||'')}</span></td></tr>`}).join('')}</tbody></table>` : '<div class="empty">No shifts in range.</div>';
 }
 function targetHr(runner){
+  const tp = state.trips.filter(t=>(runner==='all'||t.runner===runner) && t.total>0 && t.minutes).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)).slice(0,40);
+  if(tp.length>=10) return median(tp.map(t=>(t.total-(t.toll||0))/t.minutes*60));
   const pool = state.shifts.filter(s=>(runner==='all'||s.runner===runner) && shiftHours(s)>0).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,15);
   return pool.length>=3 ? median(pool.map(s=>netOf(s)/shiftHours(s))) : state.settings.targetHr;
 }
@@ -429,9 +444,9 @@ async function loadJSON(name, fallback){ try{ const r=await fetch(`data/${name}?
 async function boot(){
   try{ const t=localStorage.getItem('rb.tab'); showTab(t||'overview'); const r=localStorage.getItem('rb.runner'); if(r) state.runner=r; }catch{ showTab('overview'); }
   render();
-  const [runners, shifts, offers, expenses, receipts, settings, pipe] = await Promise.all([
-    loadJSON('runners.json',[]), loadJSON('shifts.json',[]), loadJSON('offers.json',[]), loadJSON('expenses.json',[]), loadJSON('receipts.json',[]), loadJSON('settings.json',{}), loadJSON('pipeline.json',null)]);
-  state.runners=runners.sort((a,b)=>a.name.localeCompare(b.name)); state.shifts=shifts; state.offers=offers; state.expenses=expenses; state.receipts=receipts; state.settings={...DEF_SETTINGS,...settings}; state.loaded=true;
+  const [runners, shifts, offers, expenses, receipts, settings, pipe, trips] = await Promise.all([
+    loadJSON('runners.json',[]), loadJSON('shifts.json',[]), loadJSON('offers.json',[]), loadJSON('expenses.json',[]), loadJSON('receipts.json',[]), loadJSON('settings.json',{}), loadJSON('pipeline.json',null), loadJSON('trips.json',[])]);
+  state.runners=runners.sort((a,b)=>a.name.localeCompare(b.name)); state.shifts=shifts; state.offers=offers; state.expenses=expenses; state.receipts=receipts; state.trips=trips; state.settings={...DEF_SETTINGS,...settings}; state.loaded=true;
   $('#who').textContent = pipe&&pipe.lastRun ? `data as of ${pipe.lastRun}` : '';
   render(); renderPipe(pipe);
 }

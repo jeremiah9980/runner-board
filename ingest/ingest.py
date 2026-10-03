@@ -26,7 +26,10 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -55,7 +58,9 @@ DRY = os.environ.get("DRY_RUN") == "1"
 MAX_IMAGE_BYTES = 3_500_000
 
 APPS = {"DD": "DoorDash", "FV": "Favor", "UE": "Uber Eats", "FLEX": "Amazon Flex", "IC": "Instacart"}
-NAME_RE = re.compile(r"^(?P<runner>[A-Za-z0-9]+)_(?P<app>DD|FV|UE|FLEX|IC|EXP|OFFER|META)_(?P<date>\d{4}-\d{2}-\d{2})(?:_(?P<n>\d+))?\.(?P<ext>jpe?g|png|txt|pdf|csv)$", re.I)
+NAME_RE = re.compile(r"^(?P<runner>[A-Za-z0-9]+)_(?P<app>DD|FV|UE|FLEX|IC|EXP|OFFER|META)_(?P<date>\d{4}-\d{2}-\d{2})(?:_(?P<n>[A-Za-z0-9]+))?\.(?P<ext>jpe?g|png|txt|pdf|csv|mov|mp4|m4v)$", re.I)
+VIDEO_EXT = ("mov", "mp4", "m4v")
+MAX_VIDEO_BYTES = 120_000_000
 
 CSV_HEADER = ["type", "runner", "app", "date", "start", "end", "hours", "base", "tips", "fee", "deliveries",
               "miles", "pay", "minutes", "accepted", "category", "amount", "note", "source_file", "confidence"]
@@ -78,6 +83,17 @@ Return ONLY a JSON object, no prose, with this shape:
  "confidence":"high"|"medium"|"low",
  "reason":string}              // one line: what you read it from, or why confidence is low
 Rules: never guess a number that is not on the screen; use null. If base+tips differs from total by more than 0.05, set confidence to "low" and say so in reason. Times are local 24h. A screen showing a week or multiple days (not a single day/dash) is "unknown" with reason "multi-day summary"."""
+
+
+TRIPS_SYSTEM = """You read frames from a screen recording of a gig app's earnings/activity list (Uber Eats "Earnings Activity", DoorDash dash/delivery history, Instacart batch history, Favor history). The image is 2-3 consecutive phone frames side by side; items can be cut off at the top or bottom of a frame and the same item often appears in more than one frame — that is fine, list every item you can read completely once per frame.
+Return ONLY a JSON object:
+{"app":"DD"|"FV"|"UE"|"FLEX"|"IC"|null,
+ "day_headers":[{"label":"Thu, Oct 1","before_item_index":2}],   // date separators you see, and the index in `items` of the first item BELOW each header
+ "items":[{"time":"HH:mm" (24h), "kind":"delivery"|"shop_and_pay"|"order_and_pay"|"canceled"|"canceled_cpp"|"other",
+           "total":number, "tip":number|null, "toll":number|null, "minutes":number|null, "miles":number|null,
+           "pickup":string|null, "dropoff":string|null}],
+ "end_of_list":true|false}
+Rules: `total` is the amount shown on the item line (Uber shows total incl. tip; DoorDash shows total pay). minutes: convert "41 min 46 sec" to 41.77, "1 hr 14 min" to 74. A canceled item has total 0. Never invent values — use null. Items are listed newest first, top to bottom, across the frames left to right."""
 
 
 RECEIPT_SYSTEM = """You read a photo (or OCR text) of a purchase receipt and return ONLY a JSON object:
@@ -233,6 +249,118 @@ def match_shift(shifts: list, runner: str, date: str, hm: str | None):
     return day[0] if len(day) == 1 else None
 
 
+def video_frames(video_bytes: bytes, fps: float = 1.0, width: int = 560) -> list[bytes]:
+    """ffmpeg -> JPEG frames, near-duplicates dropped."""
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("ffmpeg not installed")
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "in.mov"); open(src, "wb").write(video_bytes)
+        subprocess.run(["ffmpeg", "-v", "error", "-i", src, "-vf", f"fps={fps},scale={width}:-1", "-q:v", "4",
+                        os.path.join(td, "f%03d.jpg")], check=True)
+        from PIL import Image, ImageChops, ImageStat
+        out, prev = [], None
+        for f in sorted(x for x in os.listdir(td) if x.endswith(".jpg")):
+            path = os.path.join(td, f)
+            im = Image.open(path).convert("L").resize((60, 130))
+            if prev is not None and ImageStat.Stat(ImageChops.difference(im, prev)).mean[0] < 3:
+                continue
+            prev = im; out.append(open(path, "rb").read())
+        return out
+
+
+def contact_sheets(frames: list[bytes], per: int = 3) -> list[bytes]:
+    from PIL import Image
+    sheets = []
+    for k in range(0, len(frames), per):
+        ims = [Image.open(io.BytesIO(b)).convert("RGB") for b in frames[k:k + per]]
+        w, h = ims[0].size
+        sheet = Image.new("RGB", (w * len(ims), h), "white")
+        for i, im in enumerate(ims):
+            sheet.paste(im, (i * w, 0))
+        buf = io.BytesIO(); sheet.save(buf, "JPEG", quality=85); sheets.append(buf.getvalue())
+    return sheets
+
+
+def extract_trips(client: anthropic.Anthropic, hint: dict, sheets: list[bytes]) -> list[dict]:
+    """Run every sheet through the model, merge, dedupe, assign dates from day headers (gig apps roll the day at ~4 AM)."""
+    from datetime import date as _date, timedelta
+    raw, app = [], None
+    for sheet in sheets:
+        msg = client.messages.create(model=MODEL, max_tokens=1500, system=TRIPS_SYSTEM, messages=[{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(sheet).decode()}},
+            {"type": "text", "text": f"Filename hints: runner={hint.get('runner')}, app={hint.get('app')}, recorded on {hint.get('date')}. Extract the items."}]}])
+        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+        text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
+        try:
+            res = json.loads(text)
+        except json.JSONDecodeError:
+            log("trip sheet returned non-JSON"); continue
+        app = app or res.get("app")
+        headers = {h.get("before_item_index"): h.get("label") for h in res.get("day_headers", []) if isinstance(h, dict)}
+        for i, it in enumerate(res.get("items", [])):
+            if i in headers:
+                it["_header"] = headers[i]
+            raw.append(it)
+    # dedupe by (time, total, pickup) keeping first occurrence; carry day headers forward
+    seen, items, cur_label = set(), [], None
+    for it in raw:
+        if it.get("_header"):
+            cur_label = it["_header"]
+        key = (it.get("time"), round(float(it.get("total") or 0), 2), (it.get("pickup") or "")[:12].lower())
+        if key in seen:
+            continue
+        seen.add(key); it["_day"] = cur_label; items.append(it)
+    # resolve labels like "Thu, Oct 1" to ISO using the recording date's year; times before 04:00 belong to the next calendar day
+    year = int((hint.get("date") or str(_date.today()))[:4])
+    def label_to_iso(label):
+        if not label: return None
+        m = re.search(r"([A-Za-z]{3})\s+(\d{1,2})", label)
+        if not m: return None
+        mon = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"].index(m.group(1).lower()[:3]) + 1
+        return f"{year}-{mon:02d}-{int(m.group(2)):02d}"
+    out = []
+    for it in items:
+        uber_day = label_to_iso(it.get("_day")) or hint.get("date")
+        cal = uber_day
+        t = hm_to_dec(it.get("time"))
+        if uber_day and t is not None and t < 4:
+            cal = str(_date.fromisoformat(uber_day) + timedelta(days=1))
+        out.append({"app": app or hint.get("app"), "uberDay": uber_day, "date": cal, "time": it.get("time") or "",
+                    "kind": it.get("kind") or "other", "total": float(it.get("total") or 0), "tip": num(it.get("tip")),
+                    "toll": num(it.get("toll")) or 0.0, "minutes": num(it.get("minutes")), "miles": num(it.get("miles")),
+                    "pickup": it.get("pickup") or "", "dropoff": it.get("dropoff") or ""})
+    return out
+
+
+def trips_to_shifts(trips: list[dict], runner: str, src: str) -> list[dict]:
+    """Aggregate a day's trips into shift blocks (a gap > 2.5 h between trips starts a new block)."""
+    done = sorted([t for t in trips if t["total"] > 0 and t.get("time")], key=lambda t: (t["date"], t["time"]))
+    blocks, cur = [], []
+    for t in done:
+        if cur:
+            prev = cur[-1]
+            gap = (hm_to_dec(t["time"]) + (24 if t["date"] > prev["date"] else 0)) - hm_to_dec(prev["time"])
+            if gap > 2.5:
+                blocks.append(cur); cur = []
+        cur.append(t)
+    if cur: blocks.append(cur)
+    shifts = []
+    for b in blocks:
+        first, last = b[0], b[-1]
+        start = hm_to_dec(first["time"]) - (first["minutes"] or 0) / 60   # the time shown is completion time
+        end = hm_to_dec(last["time"])
+        if last["date"] > first["date"]: end += 24
+        hours = round(max(0.25, end - start), 2)
+        gross = round(sum(t["total"] - (t["tip"] or 0) - t["toll"] for t in b), 2)
+        tips = round(sum(t["tip"] or 0 for t in b), 2)
+        miles = round(sum(t["miles"] or 0 for t in b), 1)
+        shifts.append({"runner": runner, "app": first["app"], "date": first["date"], "start": round(start % 24, 2), "end": round(end % 24, 2),
+                       "hours": hours, "active": round(sum(t["minutes"] or 0 for t in b) / 60, 2), "gross": gross, "tips": tips, "fee": 0.0,
+                       "deliveries": len(b), "miles": miles, "note": f"from trip list · {len(b)} trips · tolls reimbursed ${sum(t['toll'] for t in b):.2f}",
+                       "src": "video", "sourceFile": src, "confidence": "high" if all(t["minutes"] for t in b) else "medium"})
+    return shifts
+
+
 def parse_meta(text: str) -> dict:
     out = {}
     for line in text.splitlines():
@@ -249,6 +377,7 @@ def main():
     offers = load_json("offers.json", [])
     expenses = load_json("expenses.json", [])
     receipts = load_json("receipts.json", [])
+    trips = load_json("trips.json", [])
     runner_names = {r["name"].lower(): r["name"] for r in runners}
 
     def match_runner(n: str | None):
@@ -267,7 +396,7 @@ def main():
     files = list_inbox(svc)
     log(f"inbox: {len(files)} files")
     status = {"lastRun": now_ct().strftime("%Y-%m-%d %H:%M CT"), "filesProcessed": 0, "shiftsAdded": 0,
-              "offersAdded": 0, "expensesAdded": 0, "receiptsAdded": 0, "skippedDuplicates": 0, "needsReview": 0,
+              "offersAdded": 0, "expensesAdded": 0, "receiptsAdded": 0, "tripsAdded": 0, "skippedDuplicates": 0, "needsReview": 0,
               "sheetUrl": None, "summary": ""}
     if not files:
         status["summary"] = "Inbox empty."
@@ -296,6 +425,8 @@ def main():
             g["txt"] = f
         elif ext in ("pdf", "csv"):
             g["doc"] = f
+        elif ext in VIDEO_EXT:
+            g["video"] = f
 
     # pass 1: META files
     for base, g in list(groups.items()):
@@ -327,6 +458,43 @@ def main():
         if g.get("is_meta"):
             continue
         hint = g["hint"]
+        if g.get("video"):
+            vf = g["video"]; src = vf["name"]; runner = match_runner(hint.get("runner"))
+            size = int(vf.get("size") or 0)
+            if not runner or size > MAX_VIDEO_BYTES or size == 0:
+                review_notes.append(f"{src}: " + ("unknown runner" if not runner else f"video too large ({size} bytes)"))
+                move(svc, vf["id"], FOLDERS["review"]); status["needsReview"] += 1; continue
+            try:
+                frames = video_frames(download(svc, vf["id"]))
+                sheets = contact_sheets(frames)
+                found = extract_trips(client, hint, sheets)
+            except Exception as e:   # noqa: BLE001
+                review_notes.append(f"{src}: video processing failed: {e}")
+                move(svc, vf["id"], FOLDERS["review"]); status["needsReview"] += 1; continue
+            new = []
+            for t in found:
+                t.update(runner=runner, src="video", sourceFile=src)
+                t["id"] = f"{(t['app'] or 'x').lower()}_{(t['date'] or '').replace('-', '')}_{t['time'].replace(':', '')}_{int(round(t['total'] * 100))}"
+                if any(x.get("id") == t["id"] or (x["runner"] == runner and x.get("date") == t["date"] and x.get("time") == t["time"]
+                                                  and abs(x["total"] - t["total"]) <= 0.01) for x in trips):
+                    status["skippedDuplicates"] += 1; continue
+                trips.append(t); new.append(t); status["tripsAdded"] += 1
+                row = {k: "" for k in CSV_HEADER}
+                row.update(type="trip", runner=runner, app=t["app"] or "", date=t["date"] or "", start=t["time"], pay=t["total"],
+                           tips=t["tip"] if t["tip"] is not None else "", minutes=t["minutes"] or "", miles=t["miles"] or "",
+                           note=f"{t['kind']} · {t['pickup']} → {t['dropoff']}", source_file=src, confidence="high")
+                ledger_rows.append(row)
+            # roll the new trips up into shift blocks, skipping any day that already has a pipeline/form shift for this app
+            for sh in trips_to_shifts(new, runner, src):
+                if any(s2["runner"] == runner and s2["date"] == sh["date"] and s2["app"] == sh["app"] for s2 in shifts):
+                    status["skippedDuplicates"] += 1; continue
+                sh["id"] = f"v_{sh['date'].replace('-', '')}_{runner.lower()}_{sh['app'].lower()}_{len(shifts) + 1}"
+                sh["createdAt"] = datetime.now(timezone.utc).isoformat()
+                shifts.append(sh); status["shiftsAdded"] += 1
+                new_by_day.setdefault((runner, sh["date"]), []).append(sh)
+            log(f"{src}: {len(frames)} frames -> {len(sheets)} sheets -> {len(found)} items, {len(new)} new")
+            move(svc, vf["id"], FOLDERS["processed"]); status["filesProcessed"] += 1
+            continue
         ocr = download(svc, g["txt"]["id"]).decode(errors="ignore") if g.get("txt") else None
         image, mime = None, None
         img = g.get("image")
@@ -531,9 +699,9 @@ def main():
         LEDGER.mkdir(exist_ok=True)
         (LEDGER / f"{run_day}.csv").write_text(csv_text)
         status["sheetUrl"] = upload_csv(svc, f"Runner Ledger {run_day}", csv_text)
-        save_json("shifts.json", shifts); save_json("offers.json", offers); save_json("expenses.json", expenses); save_json("receipts.json", receipts)
+        save_json("shifts.json", shifts); save_json("offers.json", offers); save_json("expenses.json", expenses); save_json("receipts.json", receipts); save_json("trips.json", trips)
 
-    parts = [f"{status['shiftsAdded']} shifts, {status['offersAdded']} offers, {status['expensesAdded']} expenses, {status['receiptsAdded']} receipts loaded"]
+    parts = [f"{status['shiftsAdded']} shifts, {status['offersAdded']} offers, {status['expensesAdded']} expenses, {status['receiptsAdded']} receipts, {status['tripsAdded']} trips loaded"]
     if status["skippedDuplicates"]:
         parts.append(f"{status['skippedDuplicates']} duplicates skipped")
     if review_notes:

@@ -30,6 +30,7 @@ phone (Shift Snap) ──► Google Drive / Runner Board / 01 Inbox
 | `docs/data/runners.json` | Who the runners are and their weekly goals. **Edit by hand.** Names must match the shortcut's step 1. |
 | `docs/data/settings.json` | IRS mileage rate, tax set-aside %, $/mile floor, fallback $/hr target, week start (1 = Monday). **Edit by hand.** |
 | `docs/data/shifts.json`, `offers.json`, `expenses.json` | Written by the pipeline. Fix a bad row here and commit. |
+| `docs/data/trips.json` | Trip-level rows read from screen recordings of the apps' earnings lists (time, pay, tip, toll, minutes, miles, route). Rolled up into `shifts.json` per block. |
 | `docs/data/receipts.json` | Every receipt read: merchant, time, total, items, card, `kind` (order / expense), the shift it matched, Drive file id of the archived photo. |
 | `docs/data/pipeline.json` | Last run status; shown on the dashboard's "How it works" tab. |
 | `ledger/` | One CSV per run — every extracted row incl. duplicates and review items, with source filename and confidence. |
@@ -71,6 +72,15 @@ phone (Shift Snap) ──► Google Drive / Runner Board / 01 Inbox
 
 13. Follow `shortcuts/README.md`. AirDrop the three shortcuts; runner edits step 1 (name) in each.
 14. Runner does one shift, runs Shift Snap, you run the workflow manually, check the dashboard and `04 Needs Review`.
+
+## Screen recordings → trips
+
+`<Runner>_<APP>_<date>_v1.mov` in the inbox is treated as a scroll-through of the app's earnings list. `ingest.py` runs ffmpeg at 1 fps,
+drops near-duplicate frames, tiles three frames per image, and asks Claude for the items on each tile (newest first, with day headers).
+Items are merged across tiles, dated from the headers (times before 4 AM roll to the next calendar day, matching the apps' own day
+boundary), appended to `docs/data/trips.json`, and rolled up into shift blocks in `shifts.json` (a gap over 2.5 h starts a new block;
+`hours` is first-pickup to last-drop, `active` is summed trip time, `gross` is pay minus tip minus reimbursed tolls). Trip rows give the
+dashboard real $/mile and $/hour per trip and feed the "Should I take it?" target once there are ten or more.
 
 ## Receipts & rewards
 

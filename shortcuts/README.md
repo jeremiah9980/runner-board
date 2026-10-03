@@ -97,6 +97,30 @@ For runners who photograph receipts with the normal Camera app during the day an
 
 Tip: make an iOS Photos album "Receipts" and point Select Photos at it so the picker opens there.
 
+## 5 · Earnings Scroll (screen recording — the easiest capture of all)
+
+Instead of screenshots, record the earnings list while you scroll. The job pulls one frame per second, drops duplicates, and reads
+every trip: time, pay, tip, toll, minutes, miles, pickup → drop-off. One 15-second recording covered three days of Uber Eats trips.
+
+1. Control Center → **Screen Record** (add it under Settings → Control Center if missing). Tap it, wait for the 3-count.
+2. Open the app's list: Uber Driver → Earnings → **Activity** (set the week filter); DoorDash → Earnings → tap the week → dash list;
+   Instacart → Earnings → batch history. Scroll slowly top to bottom — about one screen per second — until "End of activities".
+3. Stop the recording (red status bar → Stop). It saves to Photos.
+4. Run **Video Snap** (below) to send it. Filename convention: `<Runner>_<APP>_<yyyy-MM-dd>_v<n>.mov` — the date is the day you recorded; the job reads the real dates from the day headers in the list.
+
+### Video Snap
+
+| # | Action | Settings |
+|---|--------|----------|
+| 1–4 | same as Shift Snap | `Runner`, `Day` |
+| 5 | **Choose from List** | `DD`, `FV`, `UE`, `FLEX`, `IC` → `App` |
+| 6 | **Select Photos** | Include Videos on; pick the recording(s). Select Multiple on. |
+| 7 | **Repeat with Each** | `[Photos]` |
+| 8 | **Set Name** → **Save File** | `[Runner]_[App]_[Day]_v[Repeat Index].mov`, destination `01 Inbox` |
+| 9 | **Show Notification** | "Sent. Trips show up on the board overnight." |
+
+Keep recordings under ~60 s; the job skips videos over 120 MB. If the list is long, record it in two passes (`_v1`, `_v2`) — duplicates are merged.
+
 ## Sharing a shortcut
 
 Shortcut ⋯ → Share → AirDrop (or Copy iCloud Link and text it). Recipient taps **Add Shortcut**, then edits **step 1** to their own name. Nothing else changes.
