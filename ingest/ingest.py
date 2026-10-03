@@ -46,7 +46,10 @@ FOLDERS = {
     "extracted": os.environ.get("DRIVE_EXTRACTED_ID", "1bGSrXT23nZDQUANjC31_9f1M9AGbG4pl"),
     "processed": os.environ.get("DRIVE_PROCESSED_ID", "1_z7PAGiL_qFiEk88hVTo4mSxEpzwG-sj"),
     "review": os.environ.get("DRIVE_REVIEW_ID", "1HlEE8vOLH1E-IP9zR8b6FNGcDFluvX40"),
+    "receipts": os.environ.get("DRIVE_RECEIPTS_ID", "19zYlubjHQMWTpYaJitDPS_xIJy2YNeiW"),
 }
+# Rewards programs the dashboard tracks a scan checklist for. Order = display order.
+REWARDS = ["fetch", "ibotta", "receipt_hog", "upside"]
 MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5")
 DRY = os.environ.get("DRY_RUN") == "1"
 MAX_IMAGE_BYTES = 3_500_000
@@ -75,6 +78,17 @@ Return ONLY a JSON object, no prose, with this shape:
  "confidence":"high"|"medium"|"low",
  "reason":string}              // one line: what you read it from, or why confidence is low
 Rules: never guess a number that is not on the screen; use null. If base+tips differs from total by more than 0.05, set confidence to "low" and say so in reason. Times are local 24h. A screen showing a week or multiple days (not a single day/dash) is "unknown" with reason "multi-day summary"."""
+
+
+RECEIPT_SYSTEM = """You read a photo (or OCR text) of a purchase receipt and return ONLY a JSON object:
+{"merchant":string|null, "store_address":string|null, "date":"yyyy-MM-dd"|null, "time":"HH:mm"|null,
+ "total":number|null, "subtotal":number|null, "tax":number|null, "items":integer|null,
+ "payment":"card"|"cash"|"other"|null, "card_last4":string|null, "card_brand":string|null,
+ "category":"fuel"|"grocery"|"retail"|"pharmacy"|"restaurant"|"parking/tolls"|"phone"|"gear"|"maintenance"|"other",
+ "looks_like_order":true|false,   // true when this is a shop-and-deliver order a gig app paid for (grocery/retail basket, often a prepaid/gift/"Red Card"/Instacart card, order or batch number printed), false for the runner's own fuel/gear/parking
+ "order_ref":string|null,         // any order/batch/customer reference printed on it
+ "confidence":"high"|"medium"|"low", "reason":string}
+Never invent values; use null. Total is the amount actually charged."""
 
 
 # ---------------------------------------------------------------- helpers
@@ -184,6 +198,41 @@ def extract(client: anthropic.Anthropic, hint: dict, ocr_text: str | None, image
         return {"kind": "unknown", "confidence": "low", "reason": "model returned non-JSON: " + text[:120]}
 
 
+def extract_receipt(client: anthropic.Anthropic, hint: dict, ocr_text: str | None, image: bytes | None, mime: str | None) -> dict:
+    content = []
+    ctx = f"Filename hints: runner={hint.get('runner')}, date={hint.get('date')}."
+    if ocr_text:
+        content.append({"type": "text", "text": ctx + "\nOCR text:\n" + ocr_text[:6000]})
+    if image is not None:
+        content.append({"type": "image", "source": {"type": "base64", "media_type": mime or "image/jpeg",
+                                                     "data": base64.b64encode(image).decode()}})
+        content.append({"type": "text", "text": ctx + "\nRead the receipt."})
+    msg = client.messages.create(model=MODEL, max_tokens=500, system=RECEIPT_SYSTEM,
+                                 messages=[{"role": "user", "content": content}])
+    text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+    text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.M).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"confidence": "low", "reason": "model returned non-JSON: " + text[:120]}
+
+
+def match_shift(shifts: list, runner: str, date: str, hm: str | None):
+    """Find the shift whose hours contain the receipt time (same runner, same day)."""
+    day = [s for s in shifts if s["runner"] == runner and s["date"] == date]
+    if not day:
+        return None
+    t = hm_to_dec(hm)
+    if t is not None:
+        for s in day:
+            if s.get("start") is not None and s.get("end") is not None:
+                st, en = s["start"], s["end"]
+                inside = st <= t <= en if en >= st else (t >= st or t <= en)
+                if inside:
+                    return s
+    return day[0] if len(day) == 1 else None
+
+
 def parse_meta(text: str) -> dict:
     out = {}
     for line in text.splitlines():
@@ -199,6 +248,7 @@ def main():
     shifts = load_json("shifts.json", [])
     offers = load_json("offers.json", [])
     expenses = load_json("expenses.json", [])
+    receipts = load_json("receipts.json", [])
     runner_names = {r["name"].lower(): r["name"] for r in runners}
 
     def match_runner(n: str | None):
@@ -217,7 +267,7 @@ def main():
     files = list_inbox(svc)
     log(f"inbox: {len(files)} files")
     status = {"lastRun": now_ct().strftime("%Y-%m-%d %H:%M CT"), "filesProcessed": 0, "shiftsAdded": 0,
-              "offersAdded": 0, "expensesAdded": 0, "skippedDuplicates": 0, "needsReview": 0,
+              "offersAdded": 0, "expensesAdded": 0, "receiptsAdded": 0, "skippedDuplicates": 0, "needsReview": 0,
               "sheetUrl": None, "summary": ""}
     if not files:
         status["summary"] = "Inbox empty."
@@ -296,6 +346,61 @@ def main():
             review_notes.append(f"{g['doc']['name']}: statements/PDF not auto-parsed yet")
             move(svc, g["doc"]["id"], FOLDERS["review"])
             status["needsReview"] += 1
+            continue
+
+        if hint.get("app") == "EXP":
+            # receipts always get the image (OCR of a crumpled receipt is unreliable) when it is small enough
+            if img and image is None and int(img.get("size") or 0) <= MAX_IMAGE_BYTES:
+                image = download(svc, img["id"]); mime = img.get("mimeType") or "image/jpeg"
+            rr = extract_receipt(client, hint, ocr, image, mime)
+            runner = match_runner(hint.get("runner"))
+            date = hint.get("date") or rr.get("date")
+            conf = rr.get("confidence", "low")
+            src = (img or g.get("txt"))["name"]
+            row = {k: "" for k in CSV_HEADER}
+            row.update(type="receipt", runner=runner or hint.get("runner", ""), date=date or "", source_file=src,
+                       confidence=conf, note=rr.get("reason", ""), amount=rr.get("total") or "", category=rr.get("category") or "")
+            if not (runner and date and conf in ("high", "medium") and rr.get("total") is not None):
+                row["note"] = ("unknown runner; " if not runner else "") + (rr.get("reason") or "unreadable receipt")
+                ledger_rows.append(row); review_notes.append(f"{src}: {row['note']}")
+                for f in g["files"]:
+                    move(svc, f["id"], FOLDERS["review"])
+                status["needsReview"] += 1
+                continue
+            total = float(rr["total"])
+            if any(r["runner"] == runner and r["date"] == date and abs(r["total"] - total) <= 0.01
+                   and (r.get("merchant") or "").lower() == (rr.get("merchant") or "").lower() for r in receipts):
+                row["note"] = "duplicate — not loaded"; status["skippedDuplicates"] += 1
+                ledger_rows.append(row)
+                for f in g["files"]:
+                    move(svc, f["id"], FOLDERS["processed"])
+                status["filesProcessed"] += len(g["files"])
+                continue
+            is_order = bool(rr.get("looks_like_order"))
+            linked = match_shift(shifts, runner, date, rr.get("time")) if is_order else None
+            rec = {"id": f"r_{date.replace('-', '')}_{runner.lower()}_{len(receipts) + 1}", "runner": runner, "date": date,
+                   "time": rr.get("time") or "", "merchant": rr.get("merchant") or "", "storeAddress": rr.get("store_address") or "",
+                   "total": total, "subtotal": num(rr.get("subtotal")), "tax": num(rr.get("tax")), "items": int(num(rr.get("items")) or 0),
+                   "payment": rr.get("payment"), "cardLast4": rr.get("card_last4"), "cardBrand": rr.get("card_brand"),
+                   "category": rr.get("category") or "other", "kind": "order" if is_order else "expense",
+                   "orderRef": rr.get("order_ref"), "linkedShift": linked["id"] if linked else None,
+                   "app": linked["app"] if linked else None, "rewards": {k: "pending" for k in REWARDS},
+                   "driveFileId": img["id"] if img else None, "sourceFile": src, "confidence": conf,
+                   "createdAt": datetime.now(timezone.utc).isoformat()}
+            receipts.append(rec); status["receiptsAdded"] += 1
+            if not is_order:   # the runner's own money -> a deductible expense. Order receipts are the platform's money: never an expense.
+                erec = {"id": rec["id"].replace("r_", "e_"), "runner": runner, "date": date, "category": rec["category"],
+                        "amount": total, "note": rec["merchant"], "src": "pipeline", "sourceFile": src,
+                        "receiptId": rec["id"], "createdAt": rec["createdAt"]}
+                if not is_dup_exp(erec):
+                    expenses.append(erec); status["expensesAdded"] += 1
+            row.update(category=rec["category"], amount=total, note=f"{rec['kind']} · {rec['merchant']}" + (f" · matched {linked['app']} shift" if linked else ""))
+            ledger_rows.append(row)
+            if img:
+                move(svc, img["id"], FOLDERS["receipts"])      # keep the image; the dashboard links to it
+            if g.get("txt"):
+                move(svc, g["txt"]["id"], FOLDERS["processed"])
+            status["filesProcessed"] += len(g["files"])
             continue
 
         if hint.get("app") == "OFFER" and ocr and "pay=" in ocr:
@@ -426,9 +531,9 @@ def main():
         LEDGER.mkdir(exist_ok=True)
         (LEDGER / f"{run_day}.csv").write_text(csv_text)
         status["sheetUrl"] = upload_csv(svc, f"Runner Ledger {run_day}", csv_text)
-        save_json("shifts.json", shifts); save_json("offers.json", offers); save_json("expenses.json", expenses)
+        save_json("shifts.json", shifts); save_json("offers.json", offers); save_json("expenses.json", expenses); save_json("receipts.json", receipts)
 
-    parts = [f"{status['shiftsAdded']} shifts, {status['offersAdded']} offers, {status['expensesAdded']} expenses loaded"]
+    parts = [f"{status['shiftsAdded']} shifts, {status['offersAdded']} offers, {status['expensesAdded']} expenses, {status['receiptsAdded']} receipts loaded"]
     if status["skippedDuplicates"]:
         parts.append(f"{status['skippedDuplicates']} duplicates skipped")
     if review_notes:

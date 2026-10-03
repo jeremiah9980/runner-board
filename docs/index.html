@@ -125,6 +125,7 @@ pre{background:var(--card2);border-radius:10px;padding:12px;overflow-x:auto;colo
     <button role="tab" data-tab="offers" aria-selected="false">Should I take it?</button>
     <button role="tab" data-tab="shifts" aria-selected="false">Shift history</button>
     <button role="tab" data-tab="taxes" aria-selected="false">Miles &amp; taxes</button>
+    <button role="tab" data-tab="receipts" aria-selected="false">Receipts</button>
     <button role="tab" data-tab="collect" aria-selected="false">How it works</button>
   </nav>
 </div></header>
@@ -193,6 +194,37 @@ pre{background:var(--card2);border-radius:10px;padding:12px;overflow-x:auto;colo
   </div>
 </section>
 
+
+<section role="tabpanel" id="tab-receipts" hidden>
+  <div class="grid g4" id="rcTiles"></div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card">
+      <h2>Scan queue</h2>
+      <p class="note" style="margin:0 0 10px">Every receipt the pipeline read, newest first. Tap a program chip when you've scanned it into that app; the checkmarks are saved on this phone only. Tap the merchant to open the photo in Drive.</p>
+      <div class="subtabs" id="rcFilter">
+        <button class="chip" data-rc="pending" aria-pressed="true">Still to scan</button>
+        <button class="chip" data-rc="all" aria-pressed="false">All</button>
+        <button class="chip" data-rc="order" aria-pressed="false">Order receipts</button>
+        <button class="chip" data-rc="expense" aria-pressed="false">My expenses</button>
+      </div>
+      <div id="rcList"></div>
+    </div>
+    <div class="card">
+      <h2>How receipts are sorted</h2>
+      <p class="note">The job reads merchant, time, total, items and the card used, then decides which of two piles it belongs in.</p>
+      <div class="tbl"><table><thead><tr><th>Pile</th><th>What it is</th><th>Where it goes</th></tr></thead><tbody>
+        <tr><td><span class="pill app">order</span></td><td class="note">A shop-and-deliver basket paid with the platform's card (Red Card, Instacart card). Matched to the shift whose hours contain the receipt time.</td><td class="note">Receipts tab only. <b>Not</b> an expense — it was never your money, so it is not deductible.</td></tr>
+        <tr><td><span class="pill app">expense</span></td><td class="note">Your own fuel, parking, gear, phone, maintenance.</td><td class="note">Receipts tab <i>and</i> Miles &amp; taxes → Expenses, as a deduction.</td></tr>
+      </tbody></table></div>
+      <h3 style="margin-top:16px">Rewards programs</h3>
+      <p class="note" id="rcPrograms"></p>
+      <p class="note">The checklist tracks what you've scanned so nothing expires unscanned (most programs give you 14 days). It does not submit anything for you — each app's terms decide whose receipts you may scan; read them before scanning order receipts that a customer paid for.</p>
+      <h3 style="margin-top:16px">Capture</h3>
+      <p class="note"><b>Receipt Snap</b> for one at a time, <b>Receipt Batch</b> at end of day to pick every receipt photo from the camera roll in one go. Both save to the Inbox; the photo itself is archived in <code>05 Receipts</code> after it's read.</p>
+    </div>
+  </div>
+</section>
+
 <section role="tabpanel" id="tab-collect" hidden>
   <div class="card" style="margin-bottom:14px">
     <h2>The pipeline</h2>
@@ -247,7 +279,11 @@ const APPS = {DD:'DoorDash', FV:'Favor', UE:'Uber Eats', FLEX:'Amazon Flex', IC:
 const BLOCKS = [['Breakfast',6,10],['Lunch',10,14],['Afternoon',14,17],['Dinner',17,21],['Late',21,26]];
 const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DEF_SETTINGS = {mileageRate:0.70, setAside:25, minPerMile:1.50, targetHr:22, weekStart:1};
-const state = {runners:[], shifts:[], offers:[], expenses:[], settings:{...DEF_SETTINGS}, runner:'all', range:'week', loaded:false};
+const REWARD_LABELS = {fetch:'Fetch', ibotta:'Ibotta', receipt_hog:'Receipt Hog', upside:'Upside', other:'Other'};
+const state = {runners:[], shifts:[], offers:[], expenses:[], receipts:[], settings:{...DEF_SETTINGS}, runner:'all', range:'week', rcFilter:'pending', loaded:false};
+const rcKey = (id,prog) => `rb.rc.${id}.${prog}`;
+const rcGet = (id,prog) => { try{ return localStorage.getItem(rcKey(id,prog)) || 'pending'; }catch{ return 'pending'; } };
+const rcSet = (id,prog,v) => { try{ localStorage.setItem(rcKey(id,prog),v); }catch{} };
 
 const fmt$ = n => (n<0?'-':'') + '$' + Math.abs(n).toFixed(2);
 const fmt0 = n => '$' + Math.round(n).toLocaleString();
@@ -313,8 +349,32 @@ function render(){
   $('#goals').innerHTML = rs.length ? rs.map(r=>{ const wk=state.shifts.filter(s=>s.runner===r.name && dateObj(s.date)>=ws).reduce((a,s)=>a+netOf(s),0); const g=+r.weeklyGoal||0; const pct=g?Math.min(100,wk/g*100):0; const rem=Math.max(0,g-wk);
     return `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:14px"><b>${esc(r.name)}</b><span>${fmt0(wk)} <span class="note">of ${fmt0(g)}</span></span></div><div class="bar" style="margin:6px 0"><i style="width:${pct}%;background:${pct>=100?'var(--good)':'var(--accent)'}"></i></div><div class="note">${g? (rem>0?`${fmt0(rem)} to go · ${fmt0(rem/Math.max(1,daysLeft))}/day over ${daysLeft} day${daysLeft===1?'':'s'}`:'Goal hit this week.'):'No goal set.'}</div></div>`; }).join('') : '<div class="empty">No runners in runners.json yet.</div>';
   $('#insights').innerHTML = insights(A);
-  renderShifts(A); renderOffers(A); renderTaxes(); calc();
+  renderShifts(A); renderOffers(A); renderTaxes(); renderReceipts(); calc();
 }
+function programs(){ return (state.settings.rewards && state.settings.rewards.length) ? state.settings.rewards : ['fetch','ibotta','receipt_hog','upside']; }
+function renderReceipts(){
+  const progs=programs(); const all=filt(state.receipts).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const pending = r => progs.some(p=>rcGet(r.id,p)==='pending');
+  const orders=all.filter(r=>r.kind==='order'), exps=all.filter(r=>r.kind!=='order');
+  $('#rcTiles').innerHTML = [
+    ['Receipts', all.length, `${orders.length} order · ${exps.length} expense`],
+    ['Still to scan', all.filter(pending).length, 'at least one program unchecked'],
+    ['Order baskets', fmt0(orders.reduce((a,r)=>a+r.total,0)), `${orders.filter(r=>r.linkedShift).length} matched to a shift`],
+    ['Deductible', fmt0(exps.reduce((a,r)=>a+r.total,0)), 'your own money, in Expenses'],
+  ].map(([h,n,d])=>`<div class="card tile"><h3>${h}</h3><div class="n">${n}</div><div class="d">${d}</div></div>`).join('');
+  $('#rcPrograms').innerHTML = progs.map(p=>`<span class="pill app">${REWARD_LABELS[p]||p}</span>`).join(' ') + ' <span class="note">— edit <code>settings.json → rewards</code> to change.</span>';
+  let rows=all; if(state.rcFilter==='pending') rows=all.filter(pending); else if(state.rcFilter==='order') rows=orders; else if(state.rcFilter==='expense') rows=exps;
+  $('#rcList').innerHTML = rows.length ? rows.map(r=>{ const link=r.driveFileId?`https://drive.google.com/file/d/${esc(r.driveFileId)}/view`:null;
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--line)">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline">
+        <div><b>${link?`<a href="${link}" target="_blank" rel="noopener" style="color:var(--head)">${esc(r.merchant||'Receipt')}</a>`:esc(r.merchant||'Receipt')}</b> <span class="pill app">${r.kind}</span>${r.app?` <span class="pill app">${APPS[r.app]||r.app}</span>`:''}</div>
+        <div style="font-variant-numeric:tabular-nums"><b>${fmt$(r.total)}</b> <span class="note">· ${r.date}${r.time?' '+r.time:''} · ${esc(r.runner)}${r.items?` · ${r.items} items`:''}${r.cardLast4?` · •${esc(r.cardLast4)}`:''}</span></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${progs.map(p=>{ const st=rcGet(r.id,p); return `<button class="chip" data-rcid="${esc(r.id)}" data-prog="${p}" aria-pressed="${st==='scanned'}" style="${st==='skipped'?'opacity:.45;text-decoration:line-through':''}">${st==='scanned'?'✓ ':''}${REWARD_LABELS[p]||p}</button>`; }).join('')}</div>
+    </div>`; }).join('') : '<div class="empty">Nothing here. Run Receipt Snap after your next shop-and-deliver order or fuel stop.</div>';
+}
+$('#rcFilter').addEventListener('click', e=>{ const b=e.target.closest('[data-rc]'); if(!b) return; state.rcFilter=b.dataset.rc; $$('#rcFilter .chip').forEach(c=>c.setAttribute('aria-pressed', c===b)); renderReceipts(); });
+$('#rcList').addEventListener('click', e=>{ const b=e.target.closest('[data-rcid]'); if(!b) return; const cur=rcGet(b.dataset.rcid,b.dataset.prog); const next= cur==='pending'?'scanned': cur==='scanned'?'skipped':'pending'; rcSet(b.dataset.rcid,b.dataset.prog,next); renderReceipts(); });
 function insights(A){
   const out=[]; if(!A.shifts.length) return 'Nothing to say yet. Three or four shifts per app is enough to start seeing a pattern.';
   const apps=Object.entries(A.byApp).filter(([,v])=>v.hrs>=1).sort((a,b)=>b[1].net/b[1].hrs-a[1].net/a[1].hrs);
@@ -369,9 +429,9 @@ async function loadJSON(name, fallback){ try{ const r=await fetch(`data/${name}?
 async function boot(){
   try{ const t=localStorage.getItem('rb.tab'); showTab(t||'overview'); const r=localStorage.getItem('rb.runner'); if(r) state.runner=r; }catch{ showTab('overview'); }
   render();
-  const [runners, shifts, offers, expenses, settings, pipe] = await Promise.all([
-    loadJSON('runners.json',[]), loadJSON('shifts.json',[]), loadJSON('offers.json',[]), loadJSON('expenses.json',[]), loadJSON('settings.json',{}), loadJSON('pipeline.json',null)]);
-  state.runners=runners.sort((a,b)=>a.name.localeCompare(b.name)); state.shifts=shifts; state.offers=offers; state.expenses=expenses; state.settings={...DEF_SETTINGS,...settings}; state.loaded=true;
+  const [runners, shifts, offers, expenses, receipts, settings, pipe] = await Promise.all([
+    loadJSON('runners.json',[]), loadJSON('shifts.json',[]), loadJSON('offers.json',[]), loadJSON('expenses.json',[]), loadJSON('receipts.json',[]), loadJSON('settings.json',{}), loadJSON('pipeline.json',null)]);
+  state.runners=runners.sort((a,b)=>a.name.localeCompare(b.name)); state.shifts=shifts; state.offers=offers; state.expenses=expenses; state.receipts=receipts; state.settings={...DEF_SETTINGS,...settings}; state.loaded=true;
   $('#who').textContent = pipe&&pipe.lastRun ? `data as of ${pipe.lastRun}` : '';
   render(); renderPipe(pipe);
 }

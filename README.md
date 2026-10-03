@@ -15,6 +15,7 @@ phone (Shift Snap) ──► Google Drive / Runner Board / 01 Inbox
           ▼                        ▼                         ▼
  docs/data/shifts.json     ledger/YYYY-MM-DD.csv       Drive: 02 Extracted (Google Sheet)
  offers.json, expenses.json  (audit trail)             03 Processed / 04 Needs Review
+ receipts.json                                          05 Receipts (archived receipt photos)
  pipeline.json
           │
           ▼
@@ -29,6 +30,7 @@ phone (Shift Snap) ──► Google Drive / Runner Board / 01 Inbox
 | `docs/data/runners.json` | Who the runners are and their weekly goals. **Edit by hand.** Names must match the shortcut's step 1. |
 | `docs/data/settings.json` | IRS mileage rate, tax set-aside %, $/mile floor, fallback $/hr target, week start (1 = Monday). **Edit by hand.** |
 | `docs/data/shifts.json`, `offers.json`, `expenses.json` | Written by the pipeline. Fix a bad row here and commit. |
+| `docs/data/receipts.json` | Every receipt read: merchant, time, total, items, card, `kind` (order / expense), the shift it matched, Drive file id of the archived photo. |
 | `docs/data/pipeline.json` | Last run status; shown on the dashboard's "How it works" tab. |
 | `ledger/` | One CSV per run — every extracted row incl. duplicates and review items, with source filename and confidence. |
 | `ingest/ingest.py` | The job. `DRY_RUN=1` extracts and prints without writing or moving anything. |
@@ -38,12 +40,12 @@ phone (Shift Snap) ──► Google Drive / Runner Board / 01 Inbox
 
 ### A. Google Drive (one time, ~15 min)
 
-1. The folder structure already exists in Jeremiah's Drive: `Runner Board / 01 Inbox · 02 Extracted · 03 Processed · 04 Needs Review`.
+1. The folder structure already exists in Jeremiah's Drive: `Runner Board / 01 Inbox · 02 Extracted · 03 Processed · 04 Needs Review · 05 Receipts`.
    Folder IDs are the defaults in `ingest.py`; override with `DRIVE_*_ID` env vars if you rebuild them.
 2. Create a Google Cloud project (console.cloud.google.com) → **APIs & Services → Enable APIs** → enable **Google Drive API**.
 3. **IAM & Admin → Service Accounts → Create** (name `runner-board-ingest`) → Keys → **Add key → JSON**. Download it. Never commit it.
 4. Share each of the four folders with the service account's email (`runner-board-ingest@<project>.iam.gserviceaccount.com`) as **Editor**.
-   Also share **only `01 Inbox`** with each runner's Google account as Editor.
+   Share **`01 Inbox`** with each runner's Google account as Editor, and **`05 Receipts`** as Viewer (the dashboard links each receipt to its photo there).
 
 ### B. GitHub (one time, ~10 min)
 
@@ -69,6 +71,16 @@ phone (Shift Snap) ──► Google Drive / Runner Board / 01 Inbox
 
 13. Follow `shortcuts/README.md`. AirDrop the three shortcuts; runner edits step 1 (name) in each.
 14. Runner does one shift, runs Shift Snap, you run the workflow manually, check the dashboard and `04 Needs Review`.
+
+## Receipts & rewards
+
+Receipt Snap / Receipt Batch photos land in the inbox as `<Runner>_EXP_<date>_<HHmm>.jpg`. The job reads merchant, time, total,
+item count and card, then files each one as an **order** receipt (platform-paid shop-and-deliver basket, matched to the shift whose
+hours contain the receipt time) or an **expense** (the runner's own money → `expenses.json` → tax deductions). Order receipts are
+deliberately *not* expenses: a Red Card purchase is not deductible. The photo is archived in Drive `05 Receipts`; the dashboard's
+Receipts tab links to it and shows a per-program scan checklist (Fetch, Ibotta, Receipt Hog, Upside — edit `settings.json → rewards`).
+Checkmarks are stored on the runner's own phone (localStorage); nothing is submitted to any rewards app — their terms govern whose
+receipts may be scanned, and order receipts were paid for by the customer.
 
 ## Operating it
 

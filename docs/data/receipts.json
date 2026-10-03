@@ -1,0 +1,4 @@
+[
+ {"id":"exr1","runner":"Example","date":"2026-10-02","time":"18:52","merchant":"H-E-B","storeAddress":"","total":84.37,"subtotal":78.10,"tax":6.27,"items":19,"payment":"card","cardLast4":"4471","cardBrand":"Red Card","category":"grocery","kind":"order","orderRef":"","linkedShift":"ex4","app":"DD","rewards":{},"driveFileId":null,"sourceFile":"Example_EXP_2026-10-02_1852.jpg","confidence":"high","src":"example"},
+ {"id":"exr2","runner":"Example","date":"2026-10-01","time":"10:41","merchant":"Buc-ee's","storeAddress":"","total":38.12,"subtotal":38.12,"tax":0,"items":1,"payment":"card","cardLast4":"","cardBrand":"","category":"fuel","kind":"expense","orderRef":"","linkedShift":null,"app":null,"rewards":{},"driveFileId":null,"sourceFile":"Example_EXP_2026-10-01_1041.jpg","confidence":"high","src":"example"}
+]

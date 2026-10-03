@@ -67,14 +67,35 @@ First run: approve every "Allow…" prompt with **Always Allow**.
 | 11 | **Text** | `runner=[Runner]` / `date=[Day]` / `app=[App]` / `pay=[Pay]` / `miles=[Miles]` / `minutes=[Min]` / `accepted=[Took]` / `time=[Time]` |
 | 12 | **Set Name** → **Save File** | `[Runner]_OFFER_[Day]_[Time].txt`, same destination (colon in time is fine on Drive) |
 
-## 3 · Receipt Snap
+## 3 · Receipt Snap (one receipt, right now)
 
 | # | Action | Settings |
 |---|--------|----------|
 | 1–4 | same | `Runner`, `Day` |
-| 5 | **Take Photo** | Show Camera Preview on |
-| 6 | **Resize Image** → **Convert Image** | 900px, JPEG 60% |
-| 7 | **Set Name** → **Save File** | `[Runner]_EXP_[Day]_[Current Date HHmm].jpg`, same destination |
+| 5 | **Take Photo** | Show Camera Preview on. Flatten the receipt, fill the frame, whole total visible. |
+| 6 | **Resize Image** → **Convert Image** | width `1200` (receipts need more pixels than app screens), JPEG 70% |
+| 7 | **Date** → **Format Date** | Custom `HHmm` → `Stamp` |
+| 8 | **Set Name** → **Save File** | `[Runner]_EXP_[Day]_[Stamp].jpg`, same destination |
+
+The job sorts each receipt into **order** (shop-and-deliver basket paid with the platform card — matched to the shift whose
+hours contain the receipt time, never counted as an expense) or **expense** (your own fuel/parking/gear — added to the
+tax deductions). You don't have to tell it which; the card, merchant and basket give it away.
+
+## 4 · Receipt Batch (end of day, all receipts at once)
+
+For runners who photograph receipts with the normal Camera app during the day and don't want to stop and run a shortcut each time.
+
+| # | Action | Settings |
+|---|--------|----------|
+| 1–4 | same | `Runner`, `Day` |
+| 5 | **Select Photos** | **Select Multiple** on. Prompt: pick every receipt from today. |
+| 6 | **Repeat with Each** | `[Photos]` — steps 7–9 inside |
+| 7 | **Resize Image** → **Convert Image** | 1200px, JPEG 70% |
+| 8 | **Get Details of Images** | Date Taken → **Format Date** custom `HHmm` → `Stamp` (so the receipt keeps its real time for shift matching) |
+| 9 | **Set Name** → **Save File** | `[Runner]_EXP_[Day]_[Stamp]_[Repeat Index].jpg`, same destination |
+| 10 | **Show Notification** | "[Count] receipts sent." |
+
+Tip: make an iOS Photos album "Receipts" and point Select Photos at it so the picker opens there.
 
 ## Sharing a shortcut
 
