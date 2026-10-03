@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Runner Board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Outfit:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+img{max-width:100%} [hidden]{display:none!important}
+
+/* Layout: one column, sticky header + tab bar; summary tiles first, then the working panels. JC² family look. */
+:root{
+  --bg:#fbf6ee; --bg-wash:linear-gradient(135deg,rgba(240,134,45,.10),rgba(251,246,238,0) 45%,rgba(72,170,140,.10));
+  --card:#ffffff; --card2:#f6efe3; --line:#e6dccb; --ink:#2b1a24; --ink2:#5c4a53; --mute:#8a7a82;
+  --head:#7b1e2e; --plum:#3a1a2c; --accent:#f0862d; --accent-ink:#2b1a24; --mint:#48aa8c;
+  --good:#2f8f5b; --warn:#d99a1e; --bad:#c43d3d;
+  --heat0:#f6efe3; --heat1:#f9c795; --heat2:#f0862d; --heat3:#b8551a; --heat4:#7b1e2e;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace; --disp:'Fraunces',Georgia,serif; --body:'Outfit',system-ui,sans-serif;
+  --r:14px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1a1016; --bg-wash:linear-gradient(135deg,rgba(240,134,45,.14),rgba(26,16,22,0) 45%,rgba(72,170,140,.12));
+  --card:#241820; --card2:#2d1f29; --line:#43303c; --ink:#f3e9df; --ink2:#cdbdc5; --mute:#948490;
+  --head:#f3b7a0; --plum:#f3e9df; --accent:#f59a4a; --accent-ink:#1a1016; --mint:#6fcbaa;
+  --good:#5fc48a; --warn:#e8b650; --bad:#ef6f6f;
+  --heat0:#2d1f29; --heat1:#6a3a2a; --heat2:#b8551a; --heat3:#f0862d; --heat4:#ffc08a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#1a1016; --bg-wash:linear-gradient(135deg,rgba(240,134,45,.14),rgba(26,16,22,0) 45%,rgba(72,170,140,.12));
+  --card:#241820; --card2:#2d1f29; --line:#43303c; --ink:#f3e9df; --ink2:#cdbdc5; --mute:#948490;
+  --head:#f3b7a0; --plum:#f3e9df; --accent:#f59a4a; --accent-ink:#1a1016; --mint:#6fcbaa;
+  --good:#5fc48a; --warn:#e8b650; --bad:#ef6f6f;
+  --heat0:#2d1f29; --heat1:#6a3a2a; --heat2:#b8551a; --heat3:#f0862d; --heat4:#ffc08a; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-image:var(--bg-wash);color:var(--ink);font:15px/1.5 var(--body);min-height:100%}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:16px;padding-block:0 48px}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+header.top .wrap{padding-block:12px 0}
+.brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+h1{font:700 30px/1.05 var(--disp);color:var(--head);margin:0;text-wrap:balance}
+.sub{color:var(--ink2);font-size:14px}
+.gradbar{height:4px;background:linear-gradient(90deg,#f0862d,#f2c94c,#48aa8c);border-radius:2px;margin-top:10px}
+nav.tabs{display:flex;gap:4px;overflow-x:auto;margin-top:8px;scrollbar-width:none}
+nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:10px 12px;font:600 14px var(--body);color:var(--ink2);cursor:pointer;white-space:nowrap}
+nav.tabs button[aria-selected="true"]{color:var(--head);border-color:var(--accent)}
+nav.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:6px 12px;font:500 13px var(--body);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--plum);color:var(--bg);border-color:var(--plum)}
+.chip:focus-visible{outline:2px solid var(--accent)}
+.spacer{flex:1}
+section[role=tabpanel]{display:block}
+.grid{display:grid;gap:14px}
+.g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+@media (max-width:760px){.g4,.g3{grid-template-columns:repeat(2,1fr)} .g2{grid-template-columns:1fr}}
+@media (max-width:420px){.g4,.g3{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
+.card h2{font:700 20px/1.15 var(--disp);color:var(--head);margin:0 0 10px;text-wrap:balance}
+.card h3{font:600 13px var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin:0 0 6px}
+.tile .n{font:500 30px/1 var(--disp);color:var(--plum);font-variant-numeric:tabular-nums}
+.tile .d{color:var(--ink2);font-size:13px;margin-top:6px}
+.tile .d b{color:var(--ink)}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th{font:600 12px var(--body);letter-spacing:.05em;text-transform:uppercase;color:var(--mute);text-align:left;padding:8px 8px;border-bottom:1px solid var(--line)}
+td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+td.num,th.num{text-align:right}
+.tbl{overflow-x:auto}
+.pill{display:inline-block;border-radius:999px;padding:2px 9px;font:600 12px var(--body)}
+.pill.good{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+.pill.warn{background:color-mix(in srgb,var(--warn) 22%,transparent);color:var(--warn)}
+.pill.bad{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.pill.app{background:var(--card2);color:var(--ink2)}
+.bar{height:10px;background:var(--card2);border-radius:5px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:5px}
+.hbars{display:grid;gap:8px}
+.hrow{display:grid;grid-template-columns:120px 1fr 72px;gap:10px;align-items:center;font-size:14px}
+.hrow .bar{height:14px}
+.hrow .v{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+@media (max-width:420px){.hrow{grid-template-columns:90px 1fr 64px}}
+.heat{display:grid;grid-template-columns:110px repeat(5,1fr);gap:3px;font-size:12px}
+.heat .h{color:var(--mute);text-align:center;padding:4px 0}
+.heat .rl{color:var(--ink2);padding:6px 4px;align-self:center;font-weight:500}
+.heat .c{border-radius:6px;min-height:40px;display:flex;align-items:center;justify-content:center;font:500 13px var(--mono);color:var(--ink)}
+.heat .c.l3,.heat .c.l4{color:#fff}
+.heat .c.l0{background:var(--heat0);color:var(--mute)} .heat .c.l1{background:var(--heat1)} .heat .c.l2{background:var(--heat2)} .heat .c.l3{background:var(--heat3)} .heat .c.l4{background:var(--heat4)}
+@media (max-width:520px){.heat{grid-template-columns:70px repeat(5,1fr)} .heat .c{min-height:34px;font-size:11px}}
+form .row{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+label{display:block;font-size:12px;color:var(--mute);margin-bottom:3px}
+input,select,textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:8px 10px;font:14px var(--body)}
+textarea{font-family:var(--mono);font-size:13px;min-height:120px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:999px;padding:9px 18px;font:600 14px var(--body);cursor:pointer}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink2)}
+.btn.sm{padding:5px 11px;font-size:13px}
+.btn:focus-visible{outline:2px solid var(--plum);outline-offset:2px}
+.btn:disabled{opacity:.5;cursor:default}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
+.note{font-size:13px;color:var(--ink2)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--plum);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:9}
+code,pre{font-family:var(--mono);font-size:13px}
+pre{background:var(--card2);border-radius:10px;padding:12px;overflow-x:auto;color:var(--ink);margin:8px 0}
+.verdict{border-radius:12px;padding:14px;margin-top:12px;border:1px solid var(--line);background:var(--card2)}
+.verdict .big{font:700 24px var(--disp)}
+.verdict.good .big{color:var(--good)} .verdict.warn .big{color:var(--warn)} .verdict.bad .big{color:var(--bad)}
+.empty{color:var(--ink2);padding:18px;border:1px dashed var(--line);border-radius:12px;text-align:center}
+.steps{counter-reset:s;padding:0;margin:0;list-style:none;display:grid;gap:10px}
+.steps li{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start}
+.steps li::before{counter-increment:s;content:counter(s);width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font:600 13px/26px var(--body);text-align:center}
+.steps b{color:var(--ink)}
+.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.ro{font-size:13px;color:var(--warn)}
+.who{font-size:13px;color:var(--mute)}
+.del{background:none;border:0;color:var(--mute);cursor:pointer;font-size:16px;padding:0 4px}
+.del:hover{color:var(--bad)}
+@media (prefers-reduced-motion:no-preference){.bar i{transition:width .4s ease}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <div class="brand"><h1>Runner Board</h1><span class="sub">Gig earnings, offer decisions, miles and taxes for every runner in the family.</span><span class="spacer"></span><span class="who" id="who"></span></div>
+  <div class="gradbar"></div>
+  <nav class="tabs" role="tablist" id="tabs">
+    <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+    <button role="tab" data-tab="offers" aria-selected="false">Should I take it?</button>
+    <button role="tab" data-tab="shifts" aria-selected="false">Shift history</button>
+    <button role="tab" data-tab="taxes" aria-selected="false">Miles &amp; taxes</button>
+    <button role="tab" data-tab="collect" aria-selected="false">How it works</button>
+  </nav>
+</div></header>
+
+<div class="wrap">
+<div class="filters" id="filters">
+  <span class="eyebrow">Runner</span><span id="runnerChips" style="display:contents"></span>
+  <span class="spacer"></span>
+  <span class="eyebrow">Range</span>
+  <button class="chip" data-range="week" aria-pressed="true">This week</button>
+  <button class="chip" data-range="4w" aria-pressed="false">Last 4 weeks</button>
+  <button class="chip" data-range="ytd" aria-pressed="false">Year to date</button>
+  <button class="chip" data-range="all" aria-pressed="false">All</button>
+</div>
+
+<section role="tabpanel" id="tab-overview">
+  <div class="grid g4" id="tiles"></div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h2>Where the money is</h2><p class="note" style="margin:0 0 10px">Net $/hour by app and time block. Darker is better. Shifts are split across blocks by the hours they overlap.</p><div class="heat" id="heat"></div></div>
+    <div class="card"><h2>Apps, head to head</h2><p class="note" style="margin:0 0 10px">Net $/hour (base + tips − fees) over the selected range.</p><div class="hbars" id="appBars"></div>
+      <h3 style="margin-top:16px">By weekday</h3><div class="hbars" id="dowBars"></div></div>
+  </div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h2>Weekly goal</h2><div id="goals"></div></div>
+    <div class="card"><h2>What the data says</h2><div id="insights" class="note"></div></div>
+  </div>
+</section>
+
+<section role="tabpanel" id="tab-offers" hidden>
+  <div class="grid g2">
+    <div class="card">
+      <h2>Should I take it?</h2>
+      <p class="note" style="margin:0 0 10px">Type the offer as the app shows it. The verdict uses the minimum $/mile and your recent net $/hour.</p>
+      <form id="calc" onsubmit="return false"><div class="row">
+        <div><label for="c_runner">Runner</label><select id="c_runner"></select></div>
+        <div><label for="c_app">App</label><select id="c_app"></select></div>
+        <div><label for="c_pay">Offer $</label><input id="c_pay" type="number" step="0.01" min="0" value="9.50" inputmode="decimal"></div>
+        <div><label for="c_mi">Total miles</label><input id="c_mi" type="number" step="0.1" min="0" value="5.5" inputmode="decimal"></div>
+        <div><label for="c_min">Est. minutes</label><input id="c_min" type="number" step="1" min="1" value="24" inputmode="numeric"></div>
+      </div></form>
+      <div class="verdict" id="verdict"></div>
+      <p class="note" style="margin-top:10px">To record the decision, run the <b>Offer Snap</b> shortcut (pay, miles, minutes, took it?) — it lands here overnight. Declined offers matter as much as accepted ones.</p>
+    </div>
+    <div class="card">
+      <h2>Your acceptance rule</h2>
+      <div id="ruleStats" class="note"></div>
+      <h3 style="margin-top:14px">Recent offers</h3>
+      <div class="tbl" id="offersTbl"></div>
+    </div>
+  </div>
+</section>
+
+<section role="tabpanel" id="tab-shifts" hidden>
+  <div class="card"><h2>Shift history</h2><div class="tbl" id="shiftsTbl"></div>
+  <p class="note">Rows come from the nightly pipeline. Something wrong? Note the source file name and tell Jeremiah; the row is fixed in the repo.</p></div>
+</section>
+
+<section role="tabpanel" id="tab-taxes" hidden>
+  <div class="grid g4" id="taxTiles"></div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h2>Year-to-date, per runner</h2><div class="tbl" id="taxTbl"></div>
+      <p class="note">Mileage uses the rate in <code>settings.json</code>. Self-employment tax is estimated at 15.3% of 92.35% of net profit; income tax depends on the household return, so the set-aside percentage is a dial, not a fact. Not tax advice — confirm the current IRS standard mileage rate and your bracket with a preparer.</p></div>
+    <div class="card"><h2>Expenses</h2><div class="tbl" id="expTbl"></div>
+      <h3 style="margin-top:14px">Estimated-tax dates</h3>
+      <p class="note">Q4 2026 is due <b>Jan 15, 2027</b>. 2027: Apr 15, Jun 15, Sep 15, Jan 15.</p></div>
+  </div>
+</section>
+
+<section role="tabpanel" id="tab-collect" hidden>
+  <div class="card" style="margin-bottom:14px">
+    <h2>The pipeline</h2>
+    <p class="note" style="margin:0 0 10px">You tap one shortcut after a shift → screenshots land in the shared Google Drive folder → a nightly job reads them, writes the day's spreadsheet, and updates this page. Nobody types numbers.</p>
+    <div class="grid g4">
+      <div class="card tile" style="background:var(--card2)"><h3>1 · Capture</h3><div class="d"><b>Shift Snap</b> walks you app by app, grabs each earnings screen, asks for the odometer, and saves everything to <code>Runner Board / 01 Inbox</code>.</div></div>
+      <div class="card tile" style="background:var(--card2)"><h3>2 · Extract</h3><div class="d">Nightly, the job reads every new file (OCR text first, image if needed) and pulls base pay, tips, fees, time, deliveries and miles per app.</div></div>
+      <div class="card tile" style="background:var(--card2)"><h3>3 · Spreadsheet</h3><div class="d">One Google Sheet per day in <code>02 Extracted</code> and a CSV in the repo — the audit trail, with a confidence grade and source filename on every row.</div></div>
+      <div class="card tile" style="background:var(--card2)"><h3>4 · Publish</h3><div class="d">Rows are committed to the repo and this page re-reads them. Files move to <code>03 Processed</code>; anything unreadable to <code>04 Needs Review</code>.</div></div>
+    </div>
+    <div id="pipeStatus" style="margin-top:12px" class="note">Pipeline has not run yet.</div>
+  </div>
+  <div class="grid g2">
+    <div class="card">
+      <h2>What each screen must show</h2>
+      <p class="note">The job reads whatever is on screen. Leave these screens open when Shift Snap asks.</p>
+      <div class="tbl"><table><thead><tr><th>App</th><th>Screen to leave open</th><th>Datapoints pulled</th></tr></thead><tbody>
+        <tr><td><b>DoorDash</b></td><td>Earnings → tap today's dash → Dash summary</td><td class="note">Dash time, Active time, Deliveries, Base pay, Peak pay, Customer tips, Total</td></tr>
+        <tr><td><b>Favor</b></td><td>Earnings tab → Today</td><td class="note">Favors completed, Earnings, Tips, Hours</td></tr>
+        <tr><td><b>Uber Eats</b></td><td>Earnings → Today (tap the day)</td><td class="note">Trips, Online / On-trip time, Fares, Tips, Promotions</td></tr>
+        <tr><td><b>Amazon Flex</b></td><td>Earnings → tap the block</td><td class="note">Block window, Base, Tips, Packages</td></tr>
+        <tr><td><b>Instacart</b></td><td>Earnings → Today</td><td class="note">Batches, Batch pay, Tips, Active hours, Estimated miles</td></tr>
+        <tr><td><b>All</b></td><td>Odometer (typed when asked)</td><td class="note">IRS-grade miles; beats the apps' estimates</td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>The daily loop</h2>
+      <ol class="steps">
+        <li><div><b>Before logging in</b> — glance at the heatmap for today's weekday and the next block; open the app that paid best there.</div></li>
+        <li><div><b>Borderline offer</b> — "Should I take it?" tab, three numbers, verdict. Run Offer Snap to record it.</div></li>
+        <li><div><b>End of shift</b> — one tap on Shift Snap. Two minutes, app by app.</div></li>
+        <li><div><b>Fuel or gear</b> — photograph the receipt with Receipt Snap.</div></li>
+        <li><div><b>Overnight</b> — the job extracts, writes the day's sheet, and updates this page by morning.</div></li>
+      </ol>
+      <h3 style="margin-top:14px">Rules the job follows</h3>
+      <ul class="note" style="margin:0;padding-left:18px">
+        <li>Filename tells it runner, app and date; the META file supplies odometer miles and fees. Without META, miles come from the app screen or are flagged <span class="pill warn">no odometer</span>.</li>
+        <li>Same runner + app + date + total already loaded → skipped, not doubled.</li>
+        <li>Blurry, cropped, or totals that don't add up → <code>04 Needs Review</code>, never guessed.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+(() => {
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const APPS = {DD:'DoorDash', FV:'Favor', UE:'Uber Eats', FLEX:'Amazon Flex', IC:'Instacart'};
+const BLOCKS = [['Breakfast',6,10],['Lunch',10,14],['Afternoon',14,17],['Dinner',17,21],['Late',21,26]];
+const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DEF_SETTINGS = {mileageRate:0.70, setAside:25, minPerMile:1.50, targetHr:22, weekStart:1};
+const state = {runners:[], shifts:[], offers:[], expenses:[], settings:{...DEF_SETTINGS}, runner:'all', range:'week', loaded:false};
+
+const fmt$ = n => (n<0?'-':'') + '$' + Math.abs(n).toFixed(2);
+const fmt0 = n => '$' + Math.round(n).toLocaleString();
+const pad = n => String(n).padStart(2,'0');
+const dateObj = iso => { const [y,m,d]=iso.split('-').map(Number); return new Date(y,m-1,d); };
+const weekStartOf = (d, ws) => { const x=new Date(d); x.setHours(0,0,0,0); const diff=(x.getDay()-ws+7)%7; x.setDate(x.getDate()-diff); return x; };
+const inRange = iso => { const d=dateObj(iso), now=new Date(); now.setHours(23,59,59,999);
+  if(state.range==='all') return true; if(state.range==='ytd') return d.getFullYear()===now.getFullYear();
+  const ws=weekStartOf(now, state.settings.weekStart); if(state.range==='week') return d>=ws && d<=now;
+  const s=new Date(ws); s.setDate(s.getDate()-21); return d>=s && d<=now; };
+const hoursBetween = (a,b) => { let d=b-a; if(d<=0) d+=24; return d; };
+const shiftHours = s => s.active>0 ? s.active : (s.hours||0);
+const netOf = s => (+s.gross||0)+(+s.tips||0)-(+s.fee||0);
+const filt = arr => arr.filter(x => (state.runner==='all' || x.runner===state.runner) && inRange(x.date));
+const esc = s => String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const median = a => { if(!a.length) return 0; const s=[...a].sort((x,y)=>x-y); const m=s.length>>1; return s.length%2?s[m]:(s[m-1]+s[m])/2; };
+const fmtT = h => { const hh=Math.floor(h)%24, mm=Math.round((h%1)*60); return `${hh%12||12}:${pad(mm)}${hh<12?'a':'p'}`; };
+
+$('#tabs').addEventListener('click', e => { const b=e.target.closest('[data-tab]'); if(!b) return; showTab(b.dataset.tab); });
+function showTab(name){ $$('#tabs [data-tab]').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===name)); $$('section[role=tabpanel]').forEach(s=>s.hidden = s.id!=='tab-'+name); $('#filters').hidden = name==='collect'; try{localStorage.setItem('rb.tab',name)}catch{} }
+$('#filters').addEventListener('click', e => { const b=e.target.closest('.chip'); if(!b) return;
+  if(b.dataset.range){ state.range=b.dataset.range; $$('[data-range]').forEach(c=>c.setAttribute('aria-pressed', c===b)); }
+  if(b.dataset.runner!==undefined){ state.runner=b.dataset.runner; $$('[data-runner]').forEach(c=>c.setAttribute('aria-pressed', c===b)); try{localStorage.setItem('rb.runner',state.runner)}catch{} }
+  render(); });
+
+function renderRunnerChips(){
+  const wrap=$('#runnerChips'); const names=['all',...state.runners.map(r=>r.name)]; if(!names.includes(state.runner)) state.runner='all';
+  wrap.innerHTML = names.map(n=>`<button class="chip" data-runner="${esc(n)}" aria-pressed="${n===state.runner}">${n==='all'?'Everyone':esc(n)}</button>`).join('');
+  const el=$('#c_runner'); const cur=el.value; el.innerHTML=state.runners.map(r=>`<option>${esc(r.name)}</option>`).join('')||'<option value="">—</option>';
+  if([...el.options].some(o=>o.value===cur)) el.value=cur; else if(state.runner!=='all') el.value=state.runner;
+  const ap=$('#c_app'); if(!ap.options.length) ap.innerHTML=Object.entries(APPS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+}
+function analytics(){
+  const shifts=filt(state.shifts), offers=filt(state.offers), exps=filt(state.expenses);
+  const hrs=shifts.reduce((a,s)=>a+shiftHours(s),0), net=shifts.reduce((a,s)=>a+netOf(s),0), miles=shifts.reduce((a,s)=>a+(+s.miles||0),0);
+  const tips=shifts.reduce((a,s)=>a+(+s.tips||0),0), fees=shifts.reduce((a,s)=>a+(+s.fee||0),0), dels=shifts.reduce((a,s)=>a+(+s.deliveries||0),0);
+  const mileCost = miles*state.settings.mileageRate;
+  const byApp={}; for(const s of shifts){ const a=byApp[s.app]??={net:0,hrs:0,mi:0,n:0}; a.net+=netOf(s); a.hrs+=shiftHours(s); a.mi+=+s.miles||0; a.n++; }
+  const byDow=Array.from({length:7},()=>({net:0,hrs:0})); for(const s of shifts){ const d=dateObj(s.date).getDay(); byDow[d].net+=netOf(s); byDow[d].hrs+=shiftHours(s); }
+  const heat={}; for(const k of Object.keys(APPS)) heat[k]=BLOCKS.map(()=>({net:0,hrs:0}));
+  for(const s of shifts){ if(s.start==null||s.end==null||!heat[s.app]) continue; const st=s.start, dur=hoursBetween(s.start,s.end); if(dur<=0) continue; const rate=netOf(s)/dur;
+    BLOCKS.forEach(([_,b0,b1],i)=>{ let ov=0; for(const off of [0,24]){ const a0=st+off, a1=st+off+dur; ov+=Math.max(0,Math.min(a1,b1)-Math.max(a0,b0)); } if(ov>0){ heat[s.app][i].net+=rate*ov; heat[s.app][i].hrs+=ov; } }); }
+  return {shifts,offers,exps,hrs,net,miles,tips,fees,dels,mileCost,byApp,byDow,heat, hr: hrs?net/hrs:0, pm: miles?net/miles:0, trueHr: hrs?(net-mileCost)/hrs:0};
+}
+function render(){
+  renderRunnerChips(); const A=analytics();
+  $('#tiles').innerHTML = [
+    ['Net earned', fmt0(A.net), `${A.shifts.length} shift${A.shifts.length===1?'':'s'} · ${A.hrs.toFixed(1)} h`],
+    ['Net $/hour', A.hrs?fmt$(A.hr):'—', `after mileage cost: <b>${A.hrs?fmt$(A.trueHr):'—'}</b>/h`],
+    ['$/mile', A.miles?fmt$(A.pm):'—', `${A.miles.toFixed(0)} mi · deduction ${fmt0(A.mileCost)}`],
+    ['Tips share', A.net?Math.round(A.tips/(A.net+A.fees)*100)+'%':'—', `${A.dels} deliveries · ${fmt$(A.fees)} in instant-pay fees`],
+  ].map(([h,n,d])=>`<div class="card tile"><h3>${h}</h3><div class="n">${n}</div><div class="d">${d}</div></div>`).join('');
+  let max=0; for(const k in A.heat) for(const c of A.heat[k]) if(c.hrs>=0.5) max=Math.max(max,c.net/c.hrs);
+  let h=`<div></div>${BLOCKS.map(b=>`<div class="h">${b[0]}<br><span style="font-size:10px">${b[1]%24}–${b[2]%24}</span></div>`).join('')}`;
+  for(const k of Object.keys(APPS)){ h+=`<div class="rl">${APPS[k]}</div>`; h+=A.heat[k].map(c=>{ if(c.hrs<0.5) return `<div class="c l0" title="under 30 min of data">·</div>`; const v=c.net/c.hrs; const lvl=max?Math.min(4,1+Math.floor(v/max*3.999)):1; return `<div class="c l${lvl}" title="${APPS[k]}: ${fmt$(v)}/h over ${c.hrs.toFixed(1)} h">${v.toFixed(0)}</div>`; }).join(''); }
+  $('#heat').innerHTML = A.shifts.length ? h : `<div class="empty" style="grid-column:1/-1">${state.loaded?'No shifts in range yet. Run Shift Snap after your next shift.':'Loading…'}</div>`;
+  const apps=Object.entries(A.byApp).filter(([,v])=>v.hrs>0).sort((a,b)=>b[1].net/b[1].hrs - a[1].net/a[1].hrs); const amax=apps.length?apps[0][1].net/apps[0][1].hrs:1;
+  $('#appBars').innerHTML = apps.length ? apps.map(([k,v])=>`<div class="hrow"><span>${APPS[k]||k}</span><div class="bar" title="${v.n} shifts, ${v.hrs.toFixed(1)} h, ${fmt$(v.mi?v.net/v.mi:0)}/mi"><i style="width:${(v.net/v.hrs/amax*100).toFixed(1)}%"></i></div><span class="v">${fmt$(v.net/v.hrs)}</span></div>`).join('') : '<div class="empty">No data yet.</div>';
+  const dows=A.byDow.map((v,i)=>[DOW[i],v]).filter(([,v])=>v.hrs>0); const dmax=Math.max(1,...dows.map(([,v])=>v.net/v.hrs));
+  $('#dowBars').innerHTML = dows.length ? dows.map(([d,v])=>`<div class="hrow"><span>${d}</span><div class="bar"><i style="width:${(v.net/v.hrs/dmax*100).toFixed(1)}%;background:var(--mint)"></i></div><span class="v">${fmt$(v.net/v.hrs)}</span></div>`).join('') : '<div class="empty">No data yet.</div>';
+  const ws=weekStartOf(new Date(), state.settings.weekStart); const daysLeft=7-Math.floor((new Date()-ws)/864e5);
+  const rs = state.runner==='all'?state.runners:state.runners.filter(r=>r.name===state.runner);
+  $('#goals').innerHTML = rs.length ? rs.map(r=>{ const wk=state.shifts.filter(s=>s.runner===r.name && dateObj(s.date)>=ws).reduce((a,s)=>a+netOf(s),0); const g=+r.weeklyGoal||0; const pct=g?Math.min(100,wk/g*100):0; const rem=Math.max(0,g-wk);
+    return `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:14px"><b>${esc(r.name)}</b><span>${fmt0(wk)} <span class="note">of ${fmt0(g)}</span></span></div><div class="bar" style="margin:6px 0"><i style="width:${pct}%;background:${pct>=100?'var(--good)':'var(--accent)'}"></i></div><div class="note">${g? (rem>0?`${fmt0(rem)} to go · ${fmt0(rem/Math.max(1,daysLeft))}/day over ${daysLeft} day${daysLeft===1?'':'s'}`:'Goal hit this week.'):'No goal set.'}</div></div>`; }).join('') : '<div class="empty">No runners in runners.json yet.</div>';
+  $('#insights').innerHTML = insights(A);
+  renderShifts(A); renderOffers(A); renderTaxes(); calc();
+}
+function insights(A){
+  const out=[]; if(!A.shifts.length) return 'Nothing to say yet. Three or four shifts per app is enough to start seeing a pattern.';
+  const apps=Object.entries(A.byApp).filter(([,v])=>v.hrs>=1).sort((a,b)=>b[1].net/b[1].hrs-a[1].net/a[1].hrs);
+  if(apps.length>=2){ const [b,w]=[apps[0],apps[apps.length-1]]; out.push(`<b>${APPS[b[0]]}</b> is paying ${fmt$(b[1].net/b[1].hrs)}/h vs ${fmt$(w[1].net/w[1].hrs)}/h on ${APPS[w[0]]} in this range — ${Math.round((b[1].net/b[1].hrs)/(w[1].net/w[1].hrs)*100-100)}% more per hour.`); }
+  let best=null; for(const k in A.heat) A.heat[k].forEach((c,i)=>{ if(c.hrs>=1 && (!best || c.net/c.hrs>best.v)) best={v:c.net/c.hrs,k,i,h:c.hrs}; });
+  if(best) out.push(`Best block: <b>${APPS[best.k]} at ${BLOCKS[best.i][0]}</b> (${fmt$(best.v)}/h over ${best.h.toFixed(1)} h).`);
+  if(A.miles) { const costShare=A.mileCost/A.net*100; out.push(`Driving eats <b>${costShare.toFixed(0)}%</b> of net at the IRS rate. ${A.pm<1.5?'Under $1.50/mile — too many long, cheap offers.':A.pm<2?'Fair. Push for $2/mile.':'Strong $/mile. Keep the rule.'}`); }
+  const dec=A.offers.filter(o=>!o.accepted), acc=A.offers.filter(o=>o.accepted);
+  if(acc.length>=3){ const accPm=median(acc.map(o=>o.pay/Math.max(.1,o.miles))); out.push(`Accepted offers run a median <b>${fmt$(accPm)}/mile</b>${dec.length?`; declined ones ${fmt$(median(dec.map(o=>o.pay/Math.max(.1,o.miles))))}/mile`:''}. ${accPm<state.settings.minPerMile?'You are taking offers under your own floor.':'Floor is holding.'}`); }
+  if(A.fees>0 && A.net) out.push(`Instant-pay fees: ${fmt$(A.fees)} (${(A.fees/A.net*100).toFixed(1)}% of net). Weekly payout would keep that.`);
+  return out.map(s=>`<p style="margin:0 0 8px">${s}</p>`).join('');
+}
+function renderShifts(A){
+  const rows=[...A.shifts].sort((a,b)=>b.date.localeCompare(a.date)||(b.start||0)-(a.start||0));
+  $('#shiftsTbl').innerHTML = rows.length ? `<table><thead><tr><th>Date</th><th>Runner</th><th>App</th><th>Time</th><th class="num">Hrs</th><th class="num">Base</th><th class="num">Tips</th><th class="num">Net</th><th class="num">$/h</th><th class="num">Mi</th><th class="num">$/mi</th><th>Note</th></tr></thead><tbody>${rows.map(s=>{const h=shiftHours(s),n=netOf(s);return `<tr><td>${s.date}</td><td>${esc(s.runner)}</td><td><span class="pill app">${APPS[s.app]||esc(s.app)}</span></td><td>${s.start!=null?fmtT(s.start)+'–'+fmtT(s.end):'—'}</td><td class="num">${h.toFixed(1)}</td><td class="num">${fmt$(+s.gross||0)}</td><td class="num">${fmt$(+s.tips||0)}</td><td class="num"><b>${fmt$(n)}</b></td><td class="num">${h?fmt$(n/h):'—'}</td><td class="num">${(+s.miles||0).toFixed(0)}</td><td class="num">${s.miles?fmt$(n/s.miles):'—'}</td><td class="note">${esc(s.note||'')}${s.confidence==='medium'?' <span class="pill warn">check</span>':''}${s.src==='example'?' <span class="pill warn">example</span>':''}<br><span style="font-size:11px">${esc(s.sourceFile||'')}</span></td></tr>`}).join('')}</tbody></table>` : '<div class="empty">No shifts in range.</div>';
+}
+function targetHr(runner){
+  const pool = state.shifts.filter(s=>(runner==='all'||s.runner===runner) && shiftHours(s)>0).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,15);
+  return pool.length>=3 ? median(pool.map(s=>netOf(s)/shiftHours(s))) : state.settings.targetHr;
+}
+function renderOffers(A){
+  const acc=A.offers.filter(o=>o.accepted), dec=A.offers.filter(o=>!o.accepted); const tgt=targetHr(state.runner);
+  $('#ruleStats').innerHTML = `<p style="margin:0 0 6px">Take an offer when it clears <b>${fmt$(state.settings.minPerMile)}/mile</b> <i>and</i> pays at least <b>${fmt$(tgt)}/hour</b> (${state.runner==='all'?'fallback target':state.runner+"'s recent median"}). Pass when it misses both. One-of-two is a judgement call: short and dense beats long and lucrative.</p>
+    <p style="margin:0">${A.offers.length} offers logged · ${acc.length} accepted · ${dec.length} declined${acc.length?` · accepted median ${fmt$(median(acc.map(o=>o.pay/Math.max(.1,o.miles))))}/mi, ${fmt$(median(acc.map(o=>o.pay/Math.max(1,o.minutes)*60)))}/h`:''}</p>`;
+  const rows=[...A.offers].sort((a,b)=>(b.ts||'').localeCompare(a.ts||'')).slice(0,40);
+  $('#offersTbl').innerHTML = rows.length ? `<table><thead><tr><th>When</th><th>Runner</th><th>App</th><th class="num">$</th><th class="num">Mi</th><th class="num">Min</th><th class="num">$/mi</th><th class="num">$/h</th><th>Took it</th></tr></thead><tbody>${rows.map(o=>`<tr><td>${o.date}${o.time?' '+o.time:''}</td><td>${esc(o.runner)}</td><td><span class="pill app">${APPS[o.app]||esc(o.app)}</span></td><td class="num">${fmt$(o.pay)}</td><td class="num">${(+o.miles).toFixed(1)}</td><td class="num">${o.minutes||'—'}</td><td class="num">${fmt$(o.pay/Math.max(.1,o.miles))}</td><td class="num">${o.minutes?fmt$(o.pay/o.minutes*60):'—'}</td><td>${o.accepted?'<span class="pill good">yes</span>':'<span class="pill bad">no</span>'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No offers logged yet. Run Offer Snap on the next borderline one.</div>';
+}
+function calc(){
+  const pay=+$('#c_pay').value||0, mi=+$('#c_mi').value||0, min=+$('#c_min').value||0; const tgt=targetHr($('#c_runner').value||state.runner);
+  const pm= mi?pay/mi:0, ph= min?pay/min*60:0; const okPm=pm>=state.settings.minPerMile, okPh=ph>=tgt; const trueNet = pay - mi*state.settings.mileageRate;
+  let cls='warn', word='Judgement call'; if(okPm&&okPh){cls='good';word='Take it';} else if(!okPm&&!okPh){cls='bad';word='Pass';}
+  $('#verdict').className='verdict '+cls;
+  $('#verdict').innerHTML = `<div class="big">${word}</div><div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:6px;font-variant-numeric:tabular-nums"><span>${fmt$(pm)}/mi <span class="pill ${okPm?'good':'bad'}">floor ${fmt$(state.settings.minPerMile)}</span></span><span>${fmt$(ph)}/h <span class="pill ${okPh?'good':'bad'}">target ${fmt$(tgt)}</span></span><span>after miles: ${fmt$(trueNet)}</span></div>
+  <div class="note" style="margin-top:6px">${cls==='warn'? (okPm?'Good per mile but slow — fine if the drop is near a hot zone.':'Pays well per hour but it is a long haul; you eat the miles and the dead-head back.') : cls==='good'?'Clears both of your rules.':'Misses both rules. The next offer is usually 60 seconds away.'}</div>`;
+}
+['#c_pay','#c_mi','#c_min','#c_runner','#c_app'].forEach(id=>$(id).addEventListener('input',calc));
+function renderTaxes(){
+  const yr=String(new Date().getFullYear()); const S=state.settings;
+  const rows=state.runners.map(r=>r.name).map(n=>{ const sh=state.shifts.filter(s=>s.runner===n && s.date.startsWith(yr)); const ex=state.expenses.filter(e=>e.runner===n && e.date.startsWith(yr));
+    const gross=sh.reduce((a,s)=>a+(+s.gross||0)+(+s.tips||0),0), fees=sh.reduce((a,s)=>a+(+s.fee||0),0), miles=sh.reduce((a,s)=>a+(+s.miles||0),0), other=ex.reduce((a,e)=>a+(+e.amount||0),0);
+    const ded=miles*S.mileageRate+other+fees; const profit=Math.max(0,gross-ded); const se=profit*0.9235*0.153; const aside=profit*S.setAside/100; return {n,gross,fees,miles,other,ded,profit,se,aside}; });
+  const T=rows.reduce((a,r)=>{for(const k in r) if(typeof r[k]==='number') a[k]=(a[k]||0)+r[k]; return a;},{});
+  $('#taxTiles').innerHTML = [['Gross (YTD)',fmt0(T.gross||0),`${yr}, all runners`],['Deductions',fmt0(T.ded||0),`${(T.miles||0).toFixed(0)} mi × ${S.mileageRate.toFixed(3)} + expenses + fees`],['Est. net profit',fmt0(T.profit||0),'Schedule C line 31, roughly'],['Set aside',fmt0(T.aside||0),`${S.setAside}% of profit · SE tax alone ≈ ${fmt0(T.se||0)}`]].map(([h,n,d])=>`<div class="card tile"><h3>${h}</h3><div class="n">${n}</div><div class="d">${d}</div></div>`).join('');
+  $('#taxTbl').innerHTML = rows.length?`<table><thead><tr><th>Runner</th><th class="num">Gross</th><th class="num">Miles</th><th class="num">Deductions</th><th class="num">Profit</th><th class="num">Set aside</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.n)}</td><td class="num">${fmt0(r.gross)}</td><td class="num">${r.miles.toFixed(0)}</td><td class="num">${fmt0(r.ded)}</td><td class="num"><b>${fmt0(r.profit)}</b></td><td class="num">${fmt0(r.aside)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">No runners yet.</div>';
+  const ex=filt(state.expenses).sort((a,b)=>b.date.localeCompare(a.date));
+  $('#expTbl').innerHTML = ex.length?`<table><thead><tr><th>Date</th><th>Runner</th><th>Category</th><th class="num">Amount</th><th>Note</th></tr></thead><tbody>${ex.map(e=>`<tr><td>${e.date}</td><td>${esc(e.runner)}</td><td>${esc(e.category)}</td><td class="num">${fmt$(+e.amount)}</td><td class="note">${esc(e.note||'')}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">No expenses in range.</div>';
+}
+function renderPipe(p){ const el=$('#pipeStatus'); if(!p||!p.lastRun){ el.textContent='Pipeline has not run yet.'; return; }
+  el.innerHTML=`<span class="pill ${p.needsReview>0?'warn':'good'}">last run ${esc(p.lastRun)}</span> &nbsp; ${p.filesProcessed??0} files · ${p.shiftsAdded??0} shifts · ${p.offersAdded??0} offers · ${p.expensesAdded??0} expenses · ${p.skippedDuplicates??0} duplicates skipped · <b>${p.needsReview??0} need review</b>${p.sheetUrl?` · <a href="${esc(p.sheetUrl)}" target="_blank" rel="noopener">day's sheet</a>`:''}${p.summary?`<div style="margin-top:6px">${esc(p.summary)}</div>`:''}`; }
+
+async function loadJSON(name, fallback){ try{ const r=await fetch(`data/${name}?v=${Date.now()}`,{cache:'no-store'}); if(!r.ok) throw 0; return await r.json(); }catch{ return fallback; } }
+async function boot(){
+  try{ const t=localStorage.getItem('rb.tab'); showTab(t||'overview'); const r=localStorage.getItem('rb.runner'); if(r) state.runner=r; }catch{ showTab('overview'); }
+  render();
+  const [runners, shifts, offers, expenses, settings, pipe] = await Promise.all([
+    loadJSON('runners.json',[]), loadJSON('shifts.json',[]), loadJSON('offers.json',[]), loadJSON('expenses.json',[]), loadJSON('settings.json',{}), loadJSON('pipeline.json',null)]);
+  state.runners=runners.sort((a,b)=>a.name.localeCompare(b.name)); state.shifts=shifts; state.offers=offers; state.expenses=expenses; state.settings={...DEF_SETTINGS,...settings}; state.loaded=true;
+  $('#who').textContent = pipe&&pipe.lastRun ? `data as of ${pipe.lastRun}` : '';
+  render(); renderPipe(pipe);
+}
+boot();
+})();
+</script>
+</body>
+</html>

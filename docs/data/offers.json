@@ -1,0 +1,4 @@
+[
+ {"id":"exo1","runner":"Example","app":"DD","pay":12.5,"miles":4.8,"minutes":20,"accepted":true,"date":"2026-10-02","time":"18:05","ts":"2026-10-02T18:05:00","note":"","src":"example"},
+ {"id":"exo2","runner":"Example","app":"DD","pay":6.25,"miles":9.1,"minutes":30,"accepted":false,"date":"2026-10-02","time":"18:40","ts":"2026-10-02T18:40:00","note":"","src":"example"}
+]
